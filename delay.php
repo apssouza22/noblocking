@@ -1,4 +1,4 @@
 <?php
 
 sleep($_GET['delay']);
-echo 'end';
+echo 'end. Delay : '. $_GET['delay'];

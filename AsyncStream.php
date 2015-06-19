@@ -2,9 +2,9 @@
 
 interface Worker {
 
-    public function done($output);
+    public function done($output, $worker);
 
-    public function fail($output);
+    public function fail($output, $worker);
 
     public function getRequest();
 
@@ -25,11 +25,7 @@ class AsyncStream implements \Countable {
         if (!$stream) {
             throw new \RuntimeException($errstr, $errno);
         }
-        $delay = 1;
-        $http_message = "GET /meusprojetos/noblocking/delay.php?delay=" .
-                $delay . " HTTP/1.0\r\nHost: localhost\r\n\r\n";
-        fwrite($stream, $http_message);
-//        fwrite($stream, $worker->getRequest());
+        fwrite($stream, $worker->getRequest());
 
         $this->sockets[] = $stream;
         $this->workers[] = $worker;
@@ -41,7 +37,7 @@ class AsyncStream implements \Countable {
         $i = array_search($worker, $this->workers, true);
 
         if (false === $i) {
-            throw new \RuntimeException();
+            throw new \RuntimeException('worker not found for delete');
         }
 
         unset($this->workers[$i]);
@@ -57,19 +53,14 @@ class AsyncStream implements \Countable {
     public function listen($timeout = 200000) {
         $read = $this->sockets;
         $changed_num = @stream_select($read, $write = null, $expect = null, 0, $timeout);
-//        var_dump($read);
-        if (!count($read)) {
-//            throw new \RuntimeException('Timeout!'); /* A time-out means that *all* streams have failed to receive a response. */
+        if ($changed_num > 0) {
+            return;
         }
-
-//        if (false === $changed_num) {
-//            throw new \RuntimeException();
-//        }
-
-//        if (0 === $changed_num) {
-//            return;
-//        }
-
+        $this->read($read);
+    }
+    
+    public function read($read) {
+        var_dump($read);
         /* stream_select generally shuffles $read, so we need to compute from which socket(s) we're reading. */
         foreach ($read as $stream) {
             $i = array_search($stream, $this->sockets, true);
@@ -86,21 +77,13 @@ class AsyncStream implements \Countable {
             $data = fread($this->sockets[$i], self::READ_BLOCK);
             if (strlen($data) == 0) {
                 $worker = $this->workers[$i];
-                $status = $this->detach($worker);
-                $worker->done($this->result[$i]);
-//                
-//                if (0 === $status) {
-//                    $worker->done($this->result[$i]);
-//                } 
-//                
-//                if (0 < $status) {
-////                    $worker->fail('Close connection error');
-//                }
-                
+                $this->detach($worker);
+                $worker->done($this->result[$i], $worker);
             } else {
                 $this->result[$i] = isset($this->result[$i]) ? $this->result[$i] . $data : $data;
             }
         }
+        
     }
 
 }
@@ -122,22 +105,62 @@ class Delay implements Worker {
         return "localhost:80";
     }
     
-    public function done($output) {
+    public function done($output, $worker) {
         var_dump($output);
         echo "Stream  closes at " . date('h:i:s') . ".<br> \n";
     }
     
-    public function fail($output) {
+    public function fail($output, $worker) {
         var_dump($output);
     }
 }
 
+class CheckupServer implements Worker {
+    private $host;
+    
+    public function __construct($host) {
+        $this->host = $host;
+    }
+    
+    public function getRequest() {
+        return "GET / HTTP/1.0\\r\\nHost: $this->host\\r\\n\\r\\n";
+    }
+    
+    public function getServerAndPort() {
+        return "{$this->host}:80";
+    }
+    
+    public function done($output, $worker) {
+        var_dump($output);
+    }
+    
+    public function fail($output, $worker) {
+        var_dump($output);
+    }
+}
+
+
+
 $async = new AsyncStream();
 
-for ($i = 1; $i < 4; $i++) {
-    $async->attach(new Delay($i));
+$delay = 15;
+while ($delay > 0) {
+    $async->attach(new Delay($delay -=3));
 }
 
 while (count($async)) {
     $async->listen();
 }
+
+
+//$async = new AsyncStream();
+//
+//$hosts = array("localhost", "apssouza.com.br", "google.com");
+//
+//foreach($hosts as $host) {
+//    $async->attach(new CheckupServer($host));
+//}
+//
+//    //while (count($async)) {
+//    ////    $async->listen();
+//    //}
